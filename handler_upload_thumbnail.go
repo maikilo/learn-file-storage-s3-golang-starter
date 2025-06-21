@@ -1,7 +1,9 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
@@ -28,10 +30,56 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-
 	fmt.Println("uploading thumbnail for video", videoID, "by user", userID)
 
 	// TODO: implement the upload here
 
-	respondWithJSON(w, http.StatusOK, struct{}{})
+	const maxMemory = 10 << 20
+	r.ParseMultipartForm(maxMemory)
+
+	file, header, err := r.FormFile("thumbnail")
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Unable to parse form file", err)
+		return
+	}
+	defer file.Close()
+
+	mediaType := header.Header.Get("Content-Type")
+	if mediaType == "" {
+		respondWithError(w, http.StatusBadRequest, "Couldn't find media type in headers", errors.New("couldn't find media type in headers"))
+		return
+	}
+
+	imageData, err := io.ReadAll(file)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Couldn't read thumbnail image data", err)
+		return
+	}
+
+	videoMetadata, err := cfg.db.GetVideo(videoID)
+	if err != nil {
+		respondWithError(w, http.StatusNotFound, "Couldn't find video metadata", err)
+		return
+	}
+	if videoMetadata.UserID != userID {
+		respondWithError(w, http.StatusUnauthorized, "Video metadata access unauthorized", errors.New("video owner is different"))
+		return
+	}
+
+	thumbnail := thumbnail{
+		data:      imageData,
+		mediaType: mediaType,
+	}
+
+	videoThumbnails[videoID] = thumbnail
+
+	newURL := fmt.Sprintf("http://localhost:8091/api/thumbnails/%s", videoID)
+	videoMetadata.ThumbnailURL = &newURL
+	err = cfg.db.UpdateVideo(videoMetadata)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Couldn't update thumbnail URL", errors.New("couldn't update video metadata"))
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, videoMetadata)
 }
