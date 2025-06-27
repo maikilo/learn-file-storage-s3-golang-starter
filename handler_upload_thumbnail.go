@@ -1,8 +1,6 @@
 package main
 
 import (
-	"crypto/rand"
-	"encoding/base64"
 	"io"
 	"net/http"
 	"os"
@@ -46,13 +44,8 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		respondWithError(w, http.StatusBadRequest, "Missing Content-Type for thumbnail", nil)
 		return
 	}
-
-	key := make([]byte, 32)
-	rand.Read(key)
-
-	assetID := base64.RawURLEncoding.EncodeToString(key)
-
-	assetPath := getAssetPath(assetID, mediaType)
+	
+	assetPath := getAssetPath(mediaType)
 	assetDiskPath := cfg.getAssetDiskPath(assetPath)
 
 	dst, err := os.Create(assetDiskPath)
